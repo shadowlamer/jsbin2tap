@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
+const path = require('path');
 const options = require('../lib/options');
 const tape = require('../lib/tape');
 const pjson = require('../package.json');
 
-const VERSION = `${pjson.name} ${pjson.version}`;
+const READ_BUF_SIZE = 65536;
 
 if (options.get('version')) {
     showVersion();
@@ -18,31 +19,35 @@ if (options.get('help') || 0 === options.getInput().length) {
 }
 
 const outputFileName = options.get('output');
-const outputFile = fs.openSync(outputFileName, options.get('append')?'a+':'w')
-const blockName = outputFileName.split('.')[0];
-
-const inputFileName = options.getInput()[0];
-const inputFile = fs.openSync(inputFileName, 'r');
-
 const startAddress = options.get('address');
+const append = options.get('append');
+const inputFileNames = options.getInput();
 
-const readBuf = Buffer.alloc(tape.getAvailable());
-const numBytesRead = fs.readSync(inputFile, readBuf, 0, readBuf.length, 0);
-const buf = Buffer.alloc(numBytesRead);
-readBuf.copy(buf, 0, 0, numBytesRead);
-tape.writeBytesBlock(buf, blockName, startAddress);
 
-fs.writeSync(outputFile, tape.getBuffer());
+const outputFile = fs.openSync(outputFileName, append ? 'a' : 'w')
+inputFileNames.forEach(inputFileName => {
+    const blockName = getBlockName(inputFileName);
+    const inputFile = fs.openSync(inputFileName, 'r');
+    const readBuf = Buffer.alloc(READ_BUF_SIZE);
 
-fs.closeSync(inputFile);
+    const numBytesRead = fs.readSync(inputFile, readBuf, 0, readBuf.length, 0);
+    tape.rewind();
+    tape.writeBytesBlock(readBuf.slice(0, numBytesRead), blockName, startAddress);
+    fs.writeSync(outputFile, tape.getBuffer());
+    fs.closeSync(inputFile);
+});
 fs.closeSync(outputFile);
 
+function getBlockName(name) {
+    return path.basename(name, path.extname(name));
+}
+
 function showVersion () {
-    console.log(VERSION);
+    console.log(`${pjson.name} ${pjson.version}`);
 }
 
 function showUsage () {
     showVersion();
-    console.log(`Usage: npm start -- [options] file.bin`);
+    console.log(`Usage: ${pjson.name} [options] file.bin [file2.bin ...]`);
     options.info();
 }
